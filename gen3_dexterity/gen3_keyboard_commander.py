@@ -18,7 +18,6 @@ class KeyboardCommander(Node):
     def __init__(self):
         super().__init__('kinova_keyboard_commander')
 
-        # Declare ROS parameters
         self.declare_parameter('linear_increment', 0.02)
         self.declare_parameter('angular_increment', 0.02)
         self.declare_parameter('timeout_duration', 5.0)
@@ -26,21 +25,17 @@ class KeyboardCommander(Node):
         self.angular_increment = self.get_parameter('angular_increment').value
         self.timeout_duration = self.get_parameter('timeout_duration').value
 
-        # Initialize clients
         self.cli = self.create_client(GetPositionIK, '/compute_ik')
         self.action_client = ActionClient(self, FollowJointTrajectory, '/kinova_joint_trajectory_controller/follow_joint_trajectory')
 
-        # Initialize state variables
         self.filtered_joint_state = None
         self.current_pose = None
         self.is_moving = False
         self.goal_reached = True
         self.last_command = None
 
-        # Subscribers
         self.joint_state_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 10)
 
-        # Wait for services and joint state
         while not self.cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('IK service not available, waiting again...')
         while not self.action_client.wait_for_server(timeout_sec=1.0):
@@ -49,15 +44,12 @@ class KeyboardCommander(Node):
             self.get_logger().info('Waiting for filtered joint state...')
             rclpy.spin_once(self)
 
-        # Initialize TF2
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Timers
         self.tf_timer = self.create_timer(1.0, self.lookup_transform)
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-        # Initialize pynput keyboard listener
         self.listener = keyboard.Listener(on_press=self.on_key_press)
         self.listener.start()
         self.get_logger().info("Keyboard listener started. Use arrow keys, i/j/k/l, s, +/-.")
@@ -76,7 +68,7 @@ class KeyboardCommander(Node):
             #     f"ry: {rotation.y:.3f}\n"
             #     f"rz: {rotation.z:.3f}\n"
             #     f"rw: {rotation.w:.3f}"
-            # )
+            # ) Loggers are annoying
             self.current_pose = PoseStamped()
             self.current_pose.header.frame_id = 'base_link'
             self.current_pose.pose.position.x = translation.x
