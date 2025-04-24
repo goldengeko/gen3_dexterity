@@ -107,7 +107,7 @@ class IKClientNode(Node):
         pose = PoseStamped()
         pose.header.frame_id = 'base_link'
         pose.pose.position.x = 0.8
-        pose.pose.position.y = 0.0
+        pose.pose.position.y = 0.04
         pose.pose.position.z = 0.25
         pose.pose.orientation.x = 0.5
         pose.pose.orientation.y = 0.5
