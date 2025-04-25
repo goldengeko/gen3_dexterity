@@ -6,7 +6,7 @@ from rclpy.action import ActionClient
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from moveit_msgs.srv import GetPositionIK
-from moveit_msgs.msg import PositionIKRequest, RobotState, MoveItErrorCodes
+from moveit_msgs.msg import PositionIKRequest, RobotState, MoveItErrorCodes, Constraints, JointConstraint
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.action import FollowJointTrajectory
 from tf2_ros import TransformListener, Buffer
@@ -50,9 +50,22 @@ class KeyboardCommander(Node):
         self.tf_timer = self.create_timer(1.0, self.lookup_transform)
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-        self.listener = keyboard.Listener(on_press=self.on_key_press)
+        self.listener = keyboard.Listener(on_press=self.on_key_press, suppress=True)
         self.listener.start()
-        self.get_logger().info("Keyboard listener started. Use arrow keys, i/j/k/l, s, +/-.")
+        self.get_logger().info("Keyboard listener started. \n" \
+        "arrow up: Move up\n" \
+        "arrow down: Move down\n" \
+        "arrow left: Move left\n" \
+        "arrow right: Move right\n" \
+        "w: Move forward\n" \
+        "s: Move backward\n" \
+        "i: Look up\n" \
+        "k: Look down\n" \
+        "j: Look left\n" \
+        "l: Look right\n" \
+        "space: Stop movement\n" \
+        "+: Increase speed\n" \
+        "-: Decrease speed\n")
 
     def lookup_transform(self):
         try:
@@ -111,6 +124,17 @@ class KeyboardCommander(Node):
         ik_req.pose_stamped = target_pose
         ik_req.robot_state = RobotState()
         ik_req.robot_state.joint_state = self.filtered_joint_state
+
+        constraints = Constraints()
+        jc = JointConstraint()
+        jc.joint_name = "joint_1"
+        jc.position = self.filtered_joint_state.position[0]
+        jc.tolerance_above = 0.1
+        jc.tolerance_below = 0.1
+        jc.weight = 1.0
+        constraints.joint_constraints.append(jc)
+        ik_req.constraints = constraints
+
         ik_req.timeout.sec = 5
         req.ik_request = ik_req
 
@@ -120,7 +144,7 @@ class KeyboardCommander(Node):
             try:
                 response = fut.result()
                 if response.error_code.val == MoveItErrorCodes.SUCCESS:
-                    self.get_logger().info("IK solution found")
+                    self.get_logger().debug("IK solution found")
                     self.send_trajectory(response.solution.joint_state)
                 else:
                     error_codes = {
@@ -153,7 +177,7 @@ class KeyboardCommander(Node):
         trajectory.points.append(point)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = trajectory
-        self.get_logger().info("Sending trajectory to action server")
+        self.get_logger().debug("Sending trajectory to action server")
         self.is_moving = True
         self.goal_reached = False
         goal_handle_future = self.action_client.send_goal_async(goal)
@@ -170,7 +194,7 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Moving up")
+        self.get_logger().debug("Moving up")
         target_pose = self.current_pose
         target_pose.pose.position.z += self.linear_increment
         joint_state = self.send_ik_request(target_pose)
@@ -183,7 +207,7 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Moving down")
+        self.get_logger().debug("Moving down")
         target_pose = self.current_pose
         target_pose.pose.position.z -= self.linear_increment
         joint_state = self.send_ik_request(target_pose)
@@ -196,7 +220,7 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Moving left")
+        self.get_logger().debug("Moving left")
         target_pose = self.current_pose
         target_pose.pose.position.y += self.linear_increment
         joint_state = self.send_ik_request(target_pose)
@@ -209,7 +233,7 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Moving right")
+        self.get_logger().debug("Moving right")
         target_pose = self.current_pose
         target_pose.pose.position.y -= self.linear_increment
         joint_state = self.send_ik_request(target_pose)
@@ -222,11 +246,11 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Looking up")
+        self.get_logger().debug("Looking up")
         target_pose = self.current_pose
         current_quat = [target_pose.pose.orientation.x, target_pose.pose.orientation.y,
                         target_pose.pose.orientation.z, target_pose.pose.orientation.w]
-        rotation_quat = quaternion_from_euler(0, self.angular_increment, 0)
+        rotation_quat = quaternion_from_euler(-self.angular_increment, 0, 0)
         new_quat = quaternion_multiply(current_quat, rotation_quat)
         target_pose.pose.orientation.x, target_pose.pose.orientation.y, \
         target_pose.pose.orientation.z, target_pose.pose.orientation.w = new_quat
@@ -240,11 +264,11 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Looking down")
+        self.get_logger().debug("Looking down")
         target_pose = self.current_pose
         current_quat = [target_pose.pose.orientation.x, target_pose.pose.orientation.y,
                         target_pose.pose.orientation.z, target_pose.pose.orientation.w]
-        rotation_quat = quaternion_from_euler(0, -self.angular_increment, 0)
+        rotation_quat = quaternion_from_euler(self.angular_increment, 0, 0)
         new_quat = quaternion_multiply(current_quat, rotation_quat)
         target_pose.pose.orientation.x, target_pose.pose.orientation.y, \
         target_pose.pose.orientation.z, target_pose.pose.orientation.w = new_quat
@@ -258,11 +282,11 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Looking left")
+        self.get_logger().debug("Looking left")
         target_pose = self.current_pose
         current_quat = [target_pose.pose.orientation.x, target_pose.pose.orientation.y,
                         target_pose.pose.orientation.z, target_pose.pose.orientation.w]
-        rotation_quat = quaternion_from_euler(0, 0, self.angular_increment)
+        rotation_quat = quaternion_from_euler(0, self.angular_increment, 0)
         new_quat = quaternion_multiply(current_quat, rotation_quat)
         target_pose.pose.orientation.x, target_pose.pose.orientation.y, \
         target_pose.pose.orientation.z, target_pose.pose.orientation.w = new_quat
@@ -276,11 +300,11 @@ class KeyboardCommander(Node):
         if not self.current_pose:
             self.get_logger().warn("Current pose not available")
             return
-        self.get_logger().info("Looking right")
+        self.get_logger().debug("Looking right")
         target_pose = self.current_pose
         current_quat = [target_pose.pose.orientation.x, target_pose.pose.orientation.y,
                         target_pose.pose.orientation.z, target_pose.pose.orientation.w]
-        rotation_quat = quaternion_from_euler(0, 0, -self.angular_increment)
+        rotation_quat = quaternion_from_euler(0, -self.angular_increment, 0)
         new_quat = quaternion_multiply(current_quat, rotation_quat)
         target_pose.pose.orientation.x, target_pose.pose.orientation.y, \
         target_pose.pose.orientation.z, target_pose.pose.orientation.w = new_quat
@@ -294,7 +318,7 @@ class KeyboardCommander(Node):
         if not self.current_pose or not self.filtered_joint_state:
             self.get_logger().warn("Cannot stop: pose or joint state unavailable")
             return
-        self.get_logger().info("Stopping movement")
+        self.get_logger().debug("Stopping movement")
         joint_state = self.send_ik_request(self.current_pose)
         if joint_state:
             self.send_trajectory(joint_state)
@@ -302,15 +326,41 @@ class KeyboardCommander(Node):
         self.last_command = 'stop'
         self.reset_timeout_timer()
 
+    def move_froward_cmd(self):
+        if not self.current_pose:
+            self.get_logger().warn("Current pose not available")
+            return
+        self.get_logger().debug("Moving forward")
+        target_pose = self.current_pose
+        target_pose.pose.position.x += self.linear_increment
+        joint_state = self.send_ik_request(target_pose)
+        if joint_state:
+            self.send_trajectory(joint_state)
+        self.last_command = 'move_forward'
+        self.reset_timeout_timer()
+
+    def move_backward_cmd(self):
+        if not self.current_pose:
+            self.get_logger().warn("Current pose not available")
+            return
+        self.get_logger().debug("Moving backward")
+        target_pose = self.current_pose
+        target_pose.pose.position.x -= self.linear_increment
+        joint_state = self.send_ik_request(target_pose)
+        if joint_state:
+            self.send_trajectory(joint_state)
+        self.last_command = 'move_backward'
+        self.reset_timeout_timer()
+
     def adjust_speed(self, delta):
         self.linear_increment = max(0.01, self.linear_increment + delta)
         self.angular_increment = max(0.01, self.angular_increment + delta)
-        self.get_logger().info(f"New linear increment: {self.linear_increment}, angular increment: {self.angular_increment}")
+        self.get_logger().debug(f"New linear increment: {self.linear_increment}, angular increment: {self.angular_increment}")
         self.reset_timeout_timer()
 
     def stop_on_timeout(self):
         if not self.goal_reached:
-            self.get_logger().info("Timeout reached. Stopping movement")
+            self.get_logger().debug("Timeout reached. Stopping movement")
             self.stop_movement()
 
     def reset_timeout_timer(self):
@@ -339,12 +389,15 @@ class KeyboardCommander(Node):
                 's': self.stop_movement,
                 'plus': lambda: self.adjust_speed(0.05),
                 'minus': lambda: self.adjust_speed(-0.05),
+                'w': self.move_froward_cmd,
+                's': self.move_backward_cmd,
+                'space': self.stop_movement,
             }
             if key_str in key_map:
                 key_map[key_str]()
-                self.get_logger().info(f"Processed key: {key_str}")
+                self.get_logger().debug(f"Processed key: {key_str}")
             else:
-                self.get_logger().info(f"Ignored key: {key_str}")
+                self.get_logger().debug(f"Ignored key: {key_str}")
         except AttributeError:
             pass
 
