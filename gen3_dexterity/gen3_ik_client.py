@@ -11,6 +11,7 @@ from control_msgs.action import FollowJointTrajectory
 
 from tf2_ros import TransformListener, Buffer
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
+from tf_transformations import quaternion_from_euler, quaternion_multiply
 
 class IKClientNode(Node):
     def __init__(self):
@@ -103,16 +104,31 @@ class IKClientNode(Node):
         # Enable collision checking
         ik_req.avoid_collisions = True
 
+        steering_angle_x = 0.0  # Adjust as needed
+        steering_angle_y = 0.0 # Adjust as needed
+        steering_angle_z = 0.0  # Adjust as needed
+
+        steering_quaternion = quaternion_from_euler(
+            steering_angle_x,
+            steering_angle_y,
+            steering_angle_z,
+        )
+
+        current_quaternion = [0.5, 0.5, 0.5, 0.5] # Front facing quaternion
+        resulting_quaternion = quaternion_multiply(current_quaternion, steering_quaternion)
+        qx, qy, qz, qw = resulting_quaternion
+
+
         # Define the target pose
         pose = PoseStamped()
         pose.header.frame_id = 'base_link'
         pose.pose.position.x = 0.8
         pose.pose.position.y = 0.04
         pose.pose.position.z = 0.25
-        pose.pose.orientation.x = 0.5
-        pose.pose.orientation.y = 0.5
-        pose.pose.orientation.z = 0.5  # Example quaternion for 90 degrees rotation around Z-axis
-        pose.pose.orientation.w = 0.5 # Example quaternion for 90 degrees rotation around Z-axis
+        pose.pose.orientation.x = qx
+        pose.pose.orientation.y = qy
+        pose.pose.orientation.z = qz  # Example quaternion for 90 degrees rotation around Z-axis
+        pose.pose.orientation.w = qw # Example quaternion for 90 degrees rotation around Z-axis
         ik_req.pose_stamped = pose
 
         # Use the dynamically filtered joint state
