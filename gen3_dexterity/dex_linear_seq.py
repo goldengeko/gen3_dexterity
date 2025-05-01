@@ -7,19 +7,20 @@ from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from moveit_msgs.srv import GetPositionIK
 from moveit_msgs.msg import PositionIKRequest, RobotState, MoveItErrorCodes, Constraints, JointConstraint
+from moveit_msgs.action import MoveGroup
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.action import FollowJointTrajectory
 from tf2_ros import TransformListener, Buffer
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 from tf_transformations import quaternion_multiply, quaternion_from_euler
-from pynput import keyboard
+import time
 
-class KeyboardCommander(Node):
+class LinearCommander(Node):
     def __init__(self):
-        super().__init__('kinova_keyboard_commander')
+        super().__init__('linear_commander')
 
-        self.declare_parameter('linear_increment', 0.1)
-        self.declare_parameter('angular_increment', 0.78)
+        self.declare_parameter('linear_increment', 0.3)
+        self.declare_parameter('angular_increment', 0.785)
         self.declare_parameter('timeout_duration', 5.0)
         self.linear_increment = self.get_parameter('linear_increment').value
         self.angular_increment = self.get_parameter('angular_increment').value
@@ -33,6 +34,7 @@ class KeyboardCommander(Node):
         self.is_moving = False
         self.goal_reached = True
         self.last_command = None
+        self.home_pose = None  # Add an attribute to store the home position
 
         self.joint_state_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 10)
 
@@ -50,22 +52,14 @@ class KeyboardCommander(Node):
         self.tf_timer = self.create_timer(1.0, self.lookup_transform)
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-        self.listener = keyboard.Listener(on_press=self.on_key_press, suppress=True)
-        self.listener.start()
-        self.get_logger().info("Keyboard listener started. \n" \
-        "arrow up: Move up\n" \
-        "arrow down: Move down\n" \
-        "arrow left: Move left\n" \
-        "arrow right: Move right\n" \
-        "w: Move forward\n" \
-        "s: Move backward\n" \
-        "i: Look up\n" \
-        "k: Look down\n" \
-        "j: Look left\n" \
-        "l: Look right\n" \
-        "space: Stop movement\n" \
-        "+: Increase speed\n" \
-        "-: Decrease speed\n")
+        # Wait for the initial pose to be available
+        while self.current_pose is None:
+            self.get_logger().info('Waiting for initial pose...')
+            rclpy.spin_once(self)
+
+        # Save the initial pose as the home position
+        self.home_pose = self.current_pose
+        self.get_logger().info("Home position saved at startup")
 
     def lookup_transform(self):
         try:
@@ -129,8 +123,8 @@ class KeyboardCommander(Node):
         # jc = JointConstraint()
         # jc.joint_name = "joint_1"
         # jc.position = self.filtered_joint_state.position[0]
-        # jc.tolerance_above = 0.01
-        # jc.tolerance_below = 0.01
+        # jc.tolerance_above = 0.1
+        # jc.tolerance_below = 0.1
         # jc.weight = 1.0
         # constraints.joint_constraints.append(jc)
         # ik_req.constraints = constraints
@@ -189,6 +183,16 @@ class KeyboardCommander(Node):
         else:
             self.get_logger().warn("Trajectory execution failed")
         self.is_moving = False
+
+    def home_cmd(self):
+        """Move the robot to the saved home position."""
+        if not self.home_pose:
+            self.get_logger().warn("Home position not set")
+            return
+        self.get_logger().info("Moving to home position")
+        joint_state = self.send_ik_request(self.home_pose)
+        if joint_state:
+            self.send_trajectory(joint_state)
 
     def move_up_cmd(self):
         if not self.current_pose:
@@ -367,48 +371,32 @@ class KeyboardCommander(Node):
         self.timeout_timer.cancel()
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-    def on_key_press(self, key):
-        if not self.goal_reached:
-            return  # Wait for current trajectory to complete
-        try:
-            # Handle special keys
-            if hasattr(key, 'name'):
-                key_str = key.name
-            else:
-                key_str = str(key.char)
-            # Map keys to commands
-            key_map = {
-                'up': self.move_up_cmd,
-                'down': self.move_down_cmd,
-                'left': self.move_left_cmd,
-                'right': self.move_right_cmd,
-                'i': self.look_up_cmd,
-                'k': self.look_down_cmd,
-                'j': self.look_left_cmd,
-                'l': self.look_right_cmd,
-                's': self.stop_movement,
-                'plus': lambda: self.adjust_speed(0.05),
-                'minus': lambda: self.adjust_speed(-0.05),
-                'w': self.move_froward_cmd,
-                's': self.move_backward_cmd,
-                'space': self.stop_movement,
-            }
-            if key_str in key_map:
-                key_map[key_str]()
-                self.get_logger().debug(f"Processed key: {key_str}")
-            else:
-                self.get_logger().debug(f"Ignored key: {key_str}")
-        except AttributeError:
-            pass
+    def linear_sequence(self):
+        self.get_logger().info("Starting linear sequence")
+        commands = [
+            self.move_right_cmd,
+            self.look_left_cmd,
+            self.look_right_cmd,
+            self.move_left_cmd,
+            self.move_left_cmd,
+            self.look_right_cmd,
+            self.look_left_cmd,
+            self.move_right_cmd
+        ]
+        for cmd in commands:
+            cmd()
+            start_time = self.get_clock().now()
+            while (self.get_clock().now() - start_time).nanoseconds < 5 * 1e9:
+                rclpy.spin_once(self, timeout_sec=0.1)
 
     def destroy_node(self):
-        self.listener.stop()
         super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
-    commander = KeyboardCommander()
+    commander = LinearCommander()
     try:
+        commander.linear_sequence()
         rclpy.spin(commander)
     except KeyboardInterrupt:
         commander.get_logger().info('Keyboard interrupt, shutting down...')
