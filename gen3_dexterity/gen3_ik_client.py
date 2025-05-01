@@ -122,9 +122,9 @@ class IKClientNode(Node):
         # Define the target pose
         pose = PoseStamped()
         pose.header.frame_id = 'base_link'
-        pose.pose.position.x = 0.8
+        pose.pose.position.x = 0.7
         pose.pose.position.y = 0.0
-        pose.pose.position.z = 0.25
+        pose.pose.position.z = 0.4
         pose.pose.orientation.x = qx
         pose.pose.orientation.y = qy
         pose.pose.orientation.z = qz  # Example quaternion for 90 degrees rotation around Z-axis
